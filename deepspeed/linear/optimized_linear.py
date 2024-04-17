@@ -141,5 +141,5 @@ class DSOptimizedLinear(nn.Module):
         # torch.distributed.barrier()
         base_weight_output = F.linear(input_tensor, base_weight)
         lora_output = self.lora_weight_2(self.lora_weight_1(input_tensor))
-        torch.distributed.barrier()
+        # torch.distributed.barrier()
         return base_weight_output + self.lora_scaling_factor * lora_output
