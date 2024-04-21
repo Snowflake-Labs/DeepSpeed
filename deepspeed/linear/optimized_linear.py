@@ -43,15 +43,17 @@ class OptimizedLinear(nn.Module):
 
         if lora_config is None and quantization_config is None:
             # Everything disabled, fall back to normal nn.Linear
-            self = nn.Linear(input_dim, output_dim, bias=bias)
+            self = nn.Linear(input_dim, output_dim, bias=bias, dtype=dtype)
+
         elif lora_config:
-            # lora enabled w. optional quant
-            self = DSOptimizedLinear(input_dim=input_dim,
-                                     output_dim=output_dim,
-                                     bias=bias,
-                                     lora_config=lora_config,
-                                     quantization_config=quantization_config,
-                                     dtype=dtype)
+            # lora enabled, quantization may or may not be
+            self = LoRAOptimizedLinear(input_dim=input_dim,
+                                       output_dim=output_dim,
+                                       bias=bias,
+                                       lora_config=lora_config,
+                                       quantization_config=quantization_config,
+                                       dtype=dtype)
+
         elif quantization_config:
             # only quantization enabled, no lora
             self = QuantizedLinear(input_dim=input_dim,
@@ -62,7 +64,7 @@ class OptimizedLinear(nn.Module):
         return self
 
 
-class DSOptimizedLinear(nn.Module):
+class LoRAOptimizedLinear(nn.Module):
 
     def __init__(self,
                  input_dim: int,
