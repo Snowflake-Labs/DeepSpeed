@@ -95,11 +95,11 @@ class LoRAOptimizedLinear(nn.Module):
 
         if self.quantization_config is not None:
             assert dtype == torch.bfloat16, "only bfloat16 is supported when using quantization"
-            self.base_weight = QuantizedParameter(w, quantization_config=quantization_config)
+            self.weight = QuantizedParameter(w, quantization_config=quantization_config)
         else:
-            self.base_weight = w
+            self.weight = w
 
-        self.base_weight.requires_grad = False
+        self.weight.requires_grad = False
 
         # Use RS lora for now.
         self.lora_scaling_factor = self.lora_config.lora_alpha / math.sqrt(self.lora_config.lora_r)
@@ -120,8 +120,8 @@ class LoRAOptimizedLinear(nn.Module):
     def full_weight(self):
         # This assumes weights are evenly sharded across gpus. which might not be correct.
         # in that case, we should flatten before all_gather.
-        local_weight = self.base_weight.dequantized() if isinstance(self.base_weight,
-                                                                    QuantizedParameter) else self.base_weight
+        local_weight = self.weight.dequantized() if isinstance(self.weight,
+                                                                    QuantizedParameter) else self.weight
         tensor_list = [
             torch.zeros_like(local_weight, device=local_weight.device, dtype=local_weight.dtype)
             for _ in range(self.zero_shards)
@@ -139,12 +139,12 @@ class LoRAOptimizedLinear(nn.Module):
         # Gather the sharded base weight
         if self.zero_shards > 1:
             with torch.no_grad():
-                base_weight = self.full_weight()
+                weight = self.full_weight()
         elif self.quantization_config:
-            base_weight = self.base_weight.dequantized()
+            weight = self.weight.dequantized()
         else:
-            base_weight = self.base_weight
+            weight = self.weight
 
-        base_weight_output = F.linear(input_tensor, base_weight)
+        weight_output = F.linear(input_tensor, weight)
         lora_output = self.lora_weight_2(self.lora_weight_1(input_tensor))
-        return base_weight_output + self.lora_scaling_factor * lora_output
+        return weight_output + self.lora_scaling_factor * lora_output
