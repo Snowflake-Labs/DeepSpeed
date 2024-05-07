@@ -1131,7 +1131,8 @@ class DeepSpeedEngine(Module):
 
         for _, module in self.module.named_modules():
             if isinstance(module, deepspeed.linear.optimized_linear.LoRAOptimizedLinear):
-                self.optimized_linear_base_weight_sharding = module.zero_shards > 1
+                if module.zero_shards > 1:
+                    self.optimized_linear_base_weight_sharding = True
 
         # Pass the mpu from here to groups. For subsequent use, just query groups
         if self.mpu is not None:
