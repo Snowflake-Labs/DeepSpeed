@@ -3170,7 +3170,7 @@ class DeepSpeedEngine(Module):
         return full_state_dict
 
     def _get_lora_base_weight_sharding_ckpt_name(self, save_dir, tag, dp_rank):
-        return os.path.join(save_dir, tag, f"lora_optimizer_linear_sharding_rank_{dp_rank}.pt")
+        return os.path.join(save_dir, tag, f"lora_optimized_linear_sharding_rank_{dp_rank}.pt")
 
     def _prune_base_weight_sharded_params(self, model_state_dict, bws_param_names):
         for bws_param in bws_param_names:
