@@ -219,7 +219,7 @@ class DeepSpeedEngine(Module):
         self.gas_boundary_ctr = 0
         self.dist_backend = get_accelerator().communication_backend_name()
         self.has_moe_layers = False
-        self.has_lora_optimized_linear = False
+        self.optimized_linear_base_weight_sharding = False
         self.num_experts = []
         self.gate_modules = []
         self.moe_layers = []
@@ -1131,7 +1131,7 @@ class DeepSpeedEngine(Module):
 
         for _, module in self.module.named_modules():
             if isinstance(module, deepspeed.linear.optimized_linear.LoRAOptimizedLinear):
-                self.has_lora_optimized_linear = True
+                self.optimized_linear_base_weight_sharding = module.zero_shards > 1
 
         # Pass the mpu from here to groups. For subsequent use, just query groups
         if self.mpu is not None:
@@ -2848,6 +2848,15 @@ class DeepSpeedEngine(Module):
                                                 mpu=self.mpu,
                                                 num_experts=self.num_experts,
                                                 checkpoint_engine=self.checkpoint_engine)
+
+        if self.optimized_linear_base_weight_sharding:
+            assert not self.load_universal_checkpoint(), "optimized linear does not yet support universal checkpoints"
+            dp_rank = dist.get_rank()
+            bws_save_path = self._get_lora_base_weight_sharding_ckpt_name(load_dir, tag, dp_rank)
+            sd = self.checkpoint_engine.load(bws_save_path, map_location=torch.device('cpu'))
+            for pname, param in sd.items():
+                checkpoint['module'][pname] = param
+
         if not self.load_universal_checkpoint():
             self.load_module_state_dict(checkpoint=checkpoint,
                                         strict=load_module_strict,
@@ -3229,7 +3238,7 @@ class DeepSpeedEngine(Module):
         exp_dp_rank = groups._get_expert_data_parallel_rank(largest_group_name)
 
         base_weight_sharded_params = {}
-        if self.has_lora_optimized_linear:
+        if self.optimized_linear_base_weight_sharding:
             # get the base weight sharded weights and save as per-rank ckpts
             dp_rank = groups._get_data_parallel_rank()
             bws_save_path = self._get_lora_base_weight_sharding_ckpt_name(save_dir, tag, dp_rank)

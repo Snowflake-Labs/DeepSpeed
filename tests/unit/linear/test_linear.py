@@ -10,6 +10,7 @@ import deepspeed.comm as dist
 
 from deepspeed.accelerator import get_accelerator
 from deepspeed.linear import OptimizedLinear, LoRAConfig, QuantizationConfig
+from unit.simple_model import SimpleMoEModel
 from unit.common import DistributedTest
 
 from deepspeed.ops.op_builder import FPQuantizerBuilder
@@ -70,6 +71,51 @@ class TestLoRALinear(DistributedTest):
 
         output = linear_layer(dummy_input)
         assert output.shape == (batch_size, output_features)
+
+    def _setup_model(self, hidden_dim, base_weight_sharding):
+        model = SimpleMoEModel(hidden_dim=hidden_dim, ep_size=1)
+        quantization_config = None
+        lora_config = LoRAConfig(lora_r=16, lora_alpha=16, base_weight_sharding=base_weight_sharding)
+        model.linear1 = OptimizedLinear(input_dim=hidden_dim,
+                                        output_dim=hidden_dim,
+                                        lora_config=lora_config,
+                                        quantization_config=quantization_config,
+                                        dtype=torch.bfloat16)
+        return model
+
+    def test_checkpoint(self, tmpdir, base_weight_sharding):
+        config_dict = {
+            "train_micro_batch_size_per_gpu": 1,
+            "steps_per_print": 1,
+            "optimizer": {
+                "type": "Adam",
+                "params": {
+                    "lr": 0.00015
+                }
+            },
+            "bf16": {
+                "enabled": True
+            },
+            "zero_optimization": {
+                "stage": 2
+            }
+        }
+        hidden_dim = 16
+        model = self._setup_model(hidden_dim, base_weight_sharding)
+        model, *_ = deepspeed.initialize(config=config_dict, model=model)
+
+        norms = {}
+        for n, p in model.named_parameters():
+            norms[n] = p.norm()
+        model.save_checkpoint(save_dir=tmpdir, tag="test")
+
+        del model
+        model = self._setup_model(hidden_dim, base_weight_sharding)
+        model, *_ = deepspeed.initialize(config=config_dict, model=model)
+        model.load_checkpoint(load_dir=tmpdir, tag="test")
+
+        for n, p in model.named_parameters():
+            assert norms[n] == p.norm()
 
 
 @pytest.mark.parametrize("q_bits", [8, 6])
