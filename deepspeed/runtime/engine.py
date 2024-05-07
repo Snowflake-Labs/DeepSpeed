@@ -219,6 +219,7 @@ class DeepSpeedEngine(Module):
         self.gas_boundary_ctr = 0
         self.dist_backend = get_accelerator().communication_backend_name()
         self.has_moe_layers = False
+        self.has_lora_optimized_linear = False
         self.num_experts = []
         self.gate_modules = []
         self.moe_layers = []
@@ -1127,6 +1128,10 @@ class DeepSpeedEngine(Module):
                     self.moe_layers.append(module)
                     if self.wall_clock_breakdown():
                         module.wall_clock_breakdown = True
+
+        for _, module in self.module.named_modules():
+            if isinstance(module, deepspeed.linear.optimized_linear.LoRAOptimizedLinear):
+                self.has_lora_optimized_linear = True
 
         # Pass the mpu from here to groups. For subsequent use, just query groups
         if self.mpu is not None:
@@ -3154,6 +3159,15 @@ class DeepSpeedEngine(Module):
 
         return full_state_dict
 
+    def _get_lora_base_weight_sharding_ckpt_name(self, save_dir, tag, dp_rank):
+        return os.path.join(save_dir, tag, f"lora_optimizer_linear_sharding_rank_{dp_rank}.pt")
+
+    def _prune_base_weight_sharded_params(self, model_state_dict, bws_param_names):
+        for bws_param in bws_param_names:
+            #if bws_param in model_state_dict:
+            del model_state_dict[bws_param]
+        return model_state_dict
+
     def _save_moe_checkpoint(self, save_dir, tag, client_state={}, exclude_frozen_parameters=False):
         save_path = self._get_ckpt_name(save_dir, tag)
         # A hack to save the checkpointing directory. Pipeline parallelism overrides
@@ -3214,6 +3228,20 @@ class DeepSpeedEngine(Module):
         expp_rank = groups._get_expert_parallel_rank(largest_group_name)
         exp_dp_rank = groups._get_expert_data_parallel_rank(largest_group_name)
 
+        base_weight_sharded_params = {}
+        if self.has_lora_optimized_linear:
+            # get the base weight sharded weights and save as per-rank ckpts
+            dp_rank = groups._get_data_parallel_rank()
+            bws_save_path = self._get_lora_base_weight_sharding_ckpt_name(save_dir, tag, dp_rank)
+            for n_module, module in self.module.named_modules():
+                if isinstance(module, deepspeed.linear.optimized_linear.LoRAOptimizedLinear):
+                    # if base-weight-sharding is not enabled use existing checkpointing paths
+                    if module.zero_shards > 1:
+                        for n, p in module.state_dict().items():
+                            if n == "weight":
+                                base_weight_sharded_params[f"{n_module}.{n}"] = p
+            self.checkpoint_engine.save(base_weight_sharded_params, bws_save_path)
+
         # In the case of E + D parallelism, only the
         # first expert parallel group should save the expert weights
         # since each expert parallel group is a copy of the model's experts
@@ -3234,6 +3262,8 @@ class DeepSpeedEngine(Module):
             # We need to get the state dict, therefore, call to DeepSpeedEngine (base class for PipelineEngine)
             model_state_dict = self._get_non_moe_state_dict(
                 DeepSpeedEngine.module_state_dict(self, exclude_frozen_parameters=exclude_frozen_parameters))
+            model_state_dict = self._prune_base_weight_sharded_params(model_state_dict,
+                                                                      base_weight_sharded_params.keys())
 
             # TODO: update num experts info,.. in checkpoint
             state = {

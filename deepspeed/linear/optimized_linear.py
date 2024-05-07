@@ -120,8 +120,7 @@ class LoRAOptimizedLinear(nn.Module):
     def full_weight(self):
         # This assumes weights are evenly sharded across gpus. which might not be correct.
         # in that case, we should flatten before all_gather.
-        local_weight = self.weight.dequantized() if isinstance(self.weight,
-                                                                    QuantizedParameter) else self.weight
+        local_weight = self.weight.dequantized() if isinstance(self.weight, QuantizedParameter) else self.weight
         tensor_list = [
             torch.zeros_like(local_weight, device=local_weight.device, dtype=local_weight.dtype)
             for _ in range(self.zero_shards)
