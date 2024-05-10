@@ -3199,14 +3199,17 @@ class DeepSpeedEngine(Module):
 
                 # get all moe parameters
                 moe_state_dict = {}
-                for n, p in module.state_dict().items():
+                for n, p in module.named_parameters():
                     if 'expert' in n and 'moe.gate.wg.weight' not in n:
+                        if isinstance(p, deepspeed.linear.quantization.QuantizedParameter):
+                            p = p.dequantized()
                         moe_state_dict[n_module + '.' + n] = p
                 moe_str_prefix = '.deepspeed_moe.experts.deepspeed_experts.'
                 # print(moe_state_dict.keys()) # until now, everything is fine. So the bug happens at next few lines
                 # Reorder the moe name rank, so that each checkpoint only has one expert
                 experts_state_dict = defaultdict(dict)
                 for key in list(moe_state_dict.keys()):
+
                     m = re.match(f".*{moe_str_prefix}([0-9]+).*", key)
 
                     local_expert_id = None
@@ -3247,9 +3250,9 @@ class DeepSpeedEngine(Module):
                 if isinstance(module, deepspeed.linear.optimized_linear.LoRAOptimizedLinear):
                     # if base-weight-sharding is not enabled use existing checkpointing paths
                     if module.zero_shards > 1:
-                        for n, p in module.state_dict().items():
+                        for n, p in module.named_parameters():
                             if n == "weight":
-                                if isinstance(param, deepspeed.linear.quantization.QuantizedParameter):
+                                if isinstance(p, deepspeed.linear.quantization.QuantizedParameter):
                                     p = p.dequantized()
                                 base_weight_sharded_params[f"{n_module}.{n}"] = p
             self.checkpoint_engine.save(base_weight_sharded_params, bws_save_path)
