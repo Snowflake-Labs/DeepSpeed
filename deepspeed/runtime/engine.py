@@ -2856,8 +2856,6 @@ class DeepSpeedEngine(Module):
             bws_save_path = self._get_lora_base_weight_sharding_ckpt_name(load_dir, tag, dp_rank)
             sd = self.checkpoint_engine.load(bws_save_path, map_location=torch.device('cpu'))
             for pname, param in sd.items():
-                if isinstance(param, deepspeed.linear.quantization.QuantizedParameter):
-                    param = param.dequantized()
                 checkpoint['module'][pname] = param
 
         if not self.load_universal_checkpoint():
@@ -3251,6 +3249,8 @@ class DeepSpeedEngine(Module):
                     if module.zero_shards > 1:
                         for n, p in module.state_dict().items():
                             if n == "weight":
+                                if isinstance(param, deepspeed.linear.quantization.QuantizedParameter):
+                                    p = p.dequantized()
                                 base_weight_sharded_params[f"{n_module}.{n}"] = p
             self.checkpoint_engine.save(base_weight_sharded_params, bws_save_path)
 
