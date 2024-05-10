@@ -3249,7 +3249,7 @@ class DeepSpeedEngine(Module):
                     if module.zero_shards > 1:
                         for n, p in module.state_dict().items():
                             if n == "weight":
-                                if isinstance(param, deepspeed.linear.quantization.QuantizedParameter):
+                                if isinstance(p, deepspeed.linear.quantization.QuantizedParameter):
                                     p = p.dequantized()
                                 base_weight_sharded_params[f"{n_module}.{n}"] = p
             self.checkpoint_engine.save(base_weight_sharded_params, bws_save_path)
