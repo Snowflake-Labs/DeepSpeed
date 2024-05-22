@@ -332,7 +332,7 @@ __global__ void apply_dequantization(uint8_t* val, T* q_val, int group_size, int
 template <typename T, int mantisa, int exponent>
 void launch_quantization(T* val,
                          uint8_t* q_val,
-                         int num_groups,
+                         size_t num_groups,
                          int group_size,
                          cudaStream_t stream,
                          float q_range,
@@ -361,7 +361,7 @@ void launch_quantization(T* val,
 }
 #define INSTANTIATE_LAUNCH_QUANTIZATION(T, mantisa, exponent) \
     template void launch_quantization<T, mantisa, exponent>(  \
-        T*, uint8_t*, int, int, cudaStream_t, float q_range, int, int, int);
+        T*, uint8_t*, size_t, int, cudaStream_t, float q_range, int, int, int);
 // fp8(E4M3), nearest-rounding
 #ifdef BF16_AVAILABLE
 INSTANTIATE_LAUNCH_QUANTIZATION(__nv_bfloat16, 23, 8);
@@ -371,7 +371,7 @@ INSTANTIATE_LAUNCH_QUANTIZATION(__half, 23, 8);
 template <typename T, int mantisa>
 void launch_dequantization(uint8_t* val,
                            T* q_val,
-                           int num_groups,
+                           size_t num_groups,
                            int group_size,
                            int q_mantisa_bits,
                            int q_exponent_bits,
@@ -388,7 +388,7 @@ void launch_dequantization(uint8_t* val,
     });
 }
 #define INSTANTIATE_LAUNCH_DEQUANTIZATION(T, mantisa) \
-    template void launch_dequantization<T, mantisa>(uint8_t*, T*, int, int, int, int, cudaStream_t);
+    template void launch_dequantization<T, mantisa>(uint8_t*, T*, size_t, int, int, int, cudaStream_t);
 // fp8(E4M3)
 #ifdef BF16_AVAILABLE
 INSTANTIATE_LAUNCH_DEQUANTIZATION(__nv_bfloat16, 7);
@@ -502,7 +502,7 @@ template <typename T, int mantisa>
 void launch_selective_dequantization(uint8_t* val,
                                      T* q_val,
                                      int32_t* indexes,
-                                     int num_groups,
+                                     size_t num_groups,
                                      int group_size,
                                      int num_indexes,
                                      int q_mantisa_bits,
@@ -522,7 +522,7 @@ void launch_selective_dequantization(uint8_t* val,
 }
 #define INSTANTIATE_LAUNCH_SELECTIVE_DEQUANTIZATION(T, mantisa) \
     template void launch_selective_dequantization<T, mantisa>(  \
-        uint8_t*, T*, int32_t*, int, int, int, int, int, cudaStream_t);
+        uint8_t*, T*, int32_t*, size_t, int, int, int, int, cudaStream_t);
 // fp8(E4M3)
 #ifdef BF16_AVAILABLE
 INSTANTIATE_LAUNCH_SELECTIVE_DEQUANTIZATION(__nv_bfloat16, 7);
