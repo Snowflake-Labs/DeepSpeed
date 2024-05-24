@@ -223,10 +223,10 @@ template <typename T,
           int total_q_bits = 16,
           int _mantisa_bits = 3,
           int _exponent_bits = 4>
-__global__ void apply_dequantization(uint8_t* val, T* q_val, int group_size, int total_num_elements)
+__global__ void apply_dequantization(uint8_t* val, T* q_val, int group_size, size_t total_num_elements)
 {
     constexpr uint32_t vector_size = quantization::access_granularity / sizeof(T);
-    int tidx = (blockIdx.x * blockDim.x + threadIdx.x) * vector_size;
+    size_t tidx = (blockIdx.x * blockDim.x + threadIdx.x) * vector_size;
 
     constexpr int quantized_bits = _mantisa_bits + _exponent_bits + 1;
     constexpr int q_exponent_bits = total_q_bits - q_mantisa_bits - 1;
@@ -404,11 +404,11 @@ __global__ void apply_selective_dequantization(uint8_t* val,
                                                T* q_val,
                                                int32_t* indexes,
                                                int group_size,
-                                               int total_num_elements)
+                                               size_t total_num_elements)
 {
     int index = indexes[blockIdx.x];
     constexpr uint32_t vector_size = quantization::access_granularity / sizeof(T);
-    int tidx = (blockIdx.y * blockDim.x + threadIdx.x) * vector_size;
+    size_t tidx = (blockIdx.y * blockDim.x + threadIdx.x) * vector_size;
     int input_index = index * total_num_elements + tidx;
     constexpr int quantized_bits = _mantisa_bits + _exponent_bits + 1;
     constexpr int q_exponent_bits = total_q_bits - q_mantisa_bits - 1;
