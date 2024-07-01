@@ -133,9 +133,6 @@ class LoRAOptimizedLinear(nn.Module):
         # This assumes weights are evenly sharded across gpus. which might not be correct.
         # in that case, we should flatten before all_gather.
         local_weight = self.weight.dequantized() if isinstance(self.weight, QuantizedParameter) else self.weight
-        if self.name == "layer1.v_proj":
-            print(f"Local weight in forward {torch.distributed.get_rank()}: {self.name}.baseweight. Weighted sum {self.weighted_sum(local_weight)}")
-
         tensor_list = [
             torch.zeros_like(local_weight, device=local_weight.device, dtype=local_weight.dtype)
             for _ in range(self.zero_shards)
@@ -155,10 +152,6 @@ class LoRAOptimizedLinear(nn.Module):
         if self.zero_shards > 1:
             with torch.no_grad():
                 weight = self.full_weight()
-                if torch.distributed.get_rank() == 0:
-                    if self.name == "layer1.v_proj":
-                        print(f"In forward {self.name}.baseweight: weighted sum {self.weighted_sum(weight)}")
-
 
         elif self.quantization_config:
             weight = self.weight.dequantized()
