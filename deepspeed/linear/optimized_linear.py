@@ -94,7 +94,6 @@ class LoRAOptimizedLinear(nn.Module):
         self.zero_shards = self.lora_config.base_weight_sharding
         self.sharded_weight_size = int(float(self.input_dim) // self.zero_shards)
         w = torch.nn.Parameter(torch.empty((self.output_dim, self.sharded_weight_size), dtype=dtype))
-        # torch.nn.init.xavier_uniform_(w)
         if self.quantization_config is not None:
             assert dtype == torch.bfloat16, "only bfloat16 is supported when using quantization"
             self.weight = QuantizedParameter(w, quantization_config=quantization_config)
@@ -103,7 +102,7 @@ class LoRAOptimizedLinear(nn.Module):
 
         self.weight.requires_grad = False
 
-        # Use RS lora for now.
+        # Use "regular" lora for now.
         self.lora_scaling_factor = self.lora_config.lora_alpha / self.lora_config.lora_r
         # Keeping lora weights in bf16 precision for ease of training.
         self.lora_weight_1 = nn.Linear(self.input_dim,
@@ -116,14 +115,13 @@ class LoRAOptimizedLinear(nn.Module):
                                        bias=self.bias,
                                        device=device,
                                        dtype=dtype)
+        # initialize "A" with kaiming uniform and "B" with zeros following this
+        # https://github.com/huggingface/peft/blob/62122b5add8d6892f70c82eaef2147a6ba33b90b/src/peft/tuners/lora/layer.py#L155
         nn.init.kaiming_uniform_(self.lora_weight_1.weight, a=math.sqrt(5))
         nn.init.zeros_(self.lora_weight_2.weight)
 
         self.lora_weight_1.weight.requires_grad = True
         self.lora_weight_2.weight.requires_grad = True
-        if self.name == "layer1.v_proj":
-            print(f"Local weight in deepspeed init {torch.distributed.get_rank()}: {self.name}.baseweight. Weighted sum {self.weighted_sum(self.weight)}")
-
 
 
     def weighted_sum(self, matrix):
