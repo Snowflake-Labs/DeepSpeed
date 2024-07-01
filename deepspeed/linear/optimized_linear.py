@@ -40,7 +40,8 @@ class OptimizedLinear(nn.Module):
                 bias: bool = False,
                 lora_config: LoRAConfig = None,
                 quantization_config: QuantizationConfig = None,
-                dtype=torch.bfloat16):
+                dtype=torch.bfloat16,
+                name=""):
 
         if quantization_config is not None and not is_dataclass(quantization_config):
             raise ValueError(f"Expecting QuantizationConfig but received {type(quantization_config)}")
@@ -57,7 +58,8 @@ class OptimizedLinear(nn.Module):
                                        bias=bias,
                                        lora_config=lora_config,
                                        quantization_config=quantization_config,
-                                       dtype=dtype)
+                                       dtype=dtype,
+                                       name=name)
 
         elif quantization_config:
             # only quantization enabled, no lora
@@ -78,7 +80,8 @@ class LoRAOptimizedLinear(nn.Module):
                  lora_config: LoRAConfig = None,
                  quantization_config: QuantizationConfig = None,
                  device=None,
-                 dtype=torch.bfloat16):
+                 dtype=torch.bfloat16,
+                 name=""):
         super().__init__()
         self.input_dim = input_dim
         self.output_dim = output_dim
@@ -87,12 +90,11 @@ class LoRAOptimizedLinear(nn.Module):
         self.quantization_config = quantization_config
         device = get_accelerator().current_device() if device is None else device
         assert self.lora_config is not None, "DSOptimizedLinear requires a LoRA config"
-
+        self.name = name
         self.zero_shards = self.lora_config.base_weight_sharding
         self.sharded_weight_size = int(float(self.input_dim) // self.zero_shards)
         w = torch.nn.Parameter(torch.empty((self.output_dim, self.sharded_weight_size), dtype=dtype))
-        torch.nn.init.xavier_uniform_(w)
-
+        # torch.nn.init.xavier_uniform_(w)
         if self.quantization_config is not None:
             assert dtype == torch.bfloat16, "only bfloat16 is supported when using quantization"
             self.weight = QuantizedParameter(w, quantization_config=quantization_config)
@@ -102,7 +104,7 @@ class LoRAOptimizedLinear(nn.Module):
         self.weight.requires_grad = False
 
         # Use RS lora for now.
-        self.lora_scaling_factor = self.lora_config.lora_alpha / math.sqrt(self.lora_config.lora_r)
+        self.lora_scaling_factor = self.lora_config.lora_alpha / self.lora_config.lora_r
         # Keeping lora weights in bf16 precision for ease of training.
         self.lora_weight_1 = nn.Linear(self.input_dim,
                                        self.lora_config.lora_r,
@@ -114,13 +116,28 @@ class LoRAOptimizedLinear(nn.Module):
                                        bias=self.bias,
                                        device=device,
                                        dtype=dtype)
+        nn.init.kaiming_uniform_(self.lora_weight_1.weight, a=math.sqrt(5))
+        nn.init.zeros_(self.lora_weight_2.weight)
+
         self.lora_weight_1.weight.requires_grad = True
         self.lora_weight_2.weight.requires_grad = True
+        if self.name == "layer1.v_proj":
+            print(f"Local weight in deepspeed init {torch.distributed.get_rank()}: {self.name}.baseweight. Weighted sum {self.weighted_sum(self.weight)}")
+
+
+
+    def weighted_sum(self, matrix):
+        rows, cols = matrix.shape
+        weights = torch.arange(rows * cols).reshape(rows, cols).to(matrix.device)
+        return torch.sum(matrix * weights).item(), torch.sum(matrix).item(), matrix.dtype, matrix.device
 
     def full_weight(self):
         # This assumes weights are evenly sharded across gpus. which might not be correct.
         # in that case, we should flatten before all_gather.
         local_weight = self.weight.dequantized() if isinstance(self.weight, QuantizedParameter) else self.weight
+        if self.name == "layer1.v_proj":
+            print(f"Local weight in forward {torch.distributed.get_rank()}: {self.name}.baseweight. Weighted sum {self.weighted_sum(local_weight)}")
+
         tensor_list = [
             torch.zeros_like(local_weight, device=local_weight.device, dtype=local_weight.dtype)
             for _ in range(self.zero_shards)
@@ -134,11 +151,17 @@ class LoRAOptimizedLinear(nn.Module):
         output = output.view(*input.shape[:-1], weight.shape[1])
         return output
 
+
     def forward(self, input_tensor):
         # Gather the sharded base weight
         if self.zero_shards > 1:
             with torch.no_grad():
                 weight = self.full_weight()
+                if torch.distributed.get_rank() == 0:
+                    if self.name == "layer1.v_proj":
+                        print(f"In forward {self.name}.baseweight: weighted sum {self.weighted_sum(weight)}")
+
+
         elif self.quantization_config:
             weight = self.weight.dequantized()
         else:
