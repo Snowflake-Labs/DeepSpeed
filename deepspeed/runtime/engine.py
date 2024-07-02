@@ -1066,17 +1066,28 @@ class DeepSpeedEngine(Module):
                 return False
             return True
 
-        for p in self.module.parameters():
+        for n, p in self.module.named_parameters():
             # Broadcast the model for different parameters
             if is_moe_param(p):
                 if torch.is_tensor(p) and is_replicated(p):
                     dist.broadcast(p.data,
                                    groups._get_expert_broadcast_src_rank(p.group_name),
                                    group=self.expert_data_parallel_group[p.group_name])
+            elif self.is_lora_param(n):
+                pass
             else:
                 if torch.is_tensor(p) and is_replicated(p):
                     dist.broadcast(p.data, groups._get_broadcast_src_rank(), group=self.seq_data_parallel_group)
 
+    def is_lora_param(self, param_name):
+        patterns = [r'model\.layers\.\d+\.block_sparse_moe\.mlp\.w(1|2|3)\.weight', 
+                    r"model\.layers\.\d+\.self_attn\.(q|k|v|o)_proj\.weight",
+                    r"model\.layers\.\d+\.residual_mlp\.w(1|2|3)\.weight"]
+        for pattern in patterns:
+            if re.search(pattern, param_name):
+                return True
+        return False
+    
     @staticmethod
     def __check_params(model: Module, dtype: torch.dtype) -> None:
         return
