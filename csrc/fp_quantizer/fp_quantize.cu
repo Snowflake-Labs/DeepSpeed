@@ -67,7 +67,9 @@ __global__ void apply_quantization(T* val,
                                    uint8_t* q_val,
                                    int group_size,
                                    std::pair<uint64_t, uint64_t> seed,
-                                   float q_range)
+                                   float q_range,
+                                   bool group_wise_scaling,
+                                   float val_max)
 {
     int tidx = threadIdx.x;
     int wid = tidx >> 5;
@@ -105,11 +107,15 @@ __global__ void apply_quantization(T* val,
         if (i * load_stride + thread_offset < group_size) {
             mem_access::load_global<quantization::access_granularity>(
                 &tmp_buf[vector_size * i], load_base_ptr + i * load_stride);
-            for (int j = 0; j < vector_size; j++)
-                cur_max = reduce::element<ROp::Max>(cur_max, __habs(tmp_buf[i * vector_size + j]));
+            if (group_wise_scaling)
+                for (int j = 0; j < vector_size; j++)
+                    cur_max =
+                        reduce::element<ROp::Max>(cur_max, __habs(tmp_buf[i * vector_size + j]));
+            else
+                cur_max = val_max
         }
     }
-    reduce::_block<T, 1, ROp::Max>(tb, warp, &cur_max);
+    if (group_wise_scaling) reduce::_block<T, 1, ROp::Max>(tb, warp, &cur_max);
 
     int mantisa_mask = ((1 << q_mantisa_bits) - 1);
     mantisa_mask <<= (_mantisa_bits - q_mantisa_bits);
@@ -200,7 +206,7 @@ __global__ void apply_quantization(T* val,
             }
         }
     }
-    if (lane == 0) {
+    if (group_wise_scaling && lane == 0) {
         float q_scale = conversion::to<float>(cur_max) / (float)q_range;
         uint8_t* scale_as_int8 = reinterpret_cast<uint8_t*>(&q_scale);
         uint32_t scale_offset =
@@ -317,16 +323,16 @@ __global__ void apply_dequantization(uint8_t* val, T* q_val, int group_size, int
     }
 }
 
-#define LAUNCH_FOR_QUANTIZATION_UNROLL(COUNT)                                    \
-    case COUNT:                                                                  \
-        apply_quantization<T,                                                    \
-                           COUNT,                                                \
-                           mantisa,                                              \
-                           exponent,                                             \
-                           CONST_Q_BITS,                                         \
-                           CONST_Q_MANTISA_BITS,                                 \
-                           CONST_STOCHASTIC_ROUNDING>                            \
-            <<<grid, block, 0, stream>>>(val, q_val, group_size, seed, q_range); \
+#define LAUNCH_FOR_QUANTIZATION_UNROLL(COUNT)                                      \
+    case COUNT:                                                                    \
+        apply_quantization<T,                                                      \
+                           COUNT,                                                  \
+                           mantisa,                                                \
+                           exponent,                                               \
+                           CONST_Q_BITS,                                           \
+                           CONST_Q_MANTISA_BITS,                                   \
+                           CONST_STOCHASTIC_ROUNDING><<<grid, block, 0, stream>>>( \
+            val, q_val, group_size, seed, q_range, group_wise_scaling, val_max);   \
         break;
 
 template <typename T, int mantisa, int exponent>
@@ -334,6 +340,8 @@ void launch_quantization(T* val,
                          uint8_t* q_val,
                          int num_groups,
                          int group_size,
+                         bool group_wise_scaling,
+                         float val_max,
                          cudaStream_t stream,
                          float q_range,
                          int q_bits,
@@ -361,7 +369,7 @@ void launch_quantization(T* val,
 }
 #define INSTANTIATE_LAUNCH_QUANTIZATION(T, mantisa, exponent) \
     template void launch_quantization<T, mantisa, exponent>(  \
-        T*, uint8_t*, int, int, cudaStream_t, float q_range, int, int, int);
+        T*, uint8_t*, int, int, bool, float, cudaStream_t, float q_range, int, int, int);
 // fp8(E4M3), nearest-rounding
 #ifdef BF16_AVAILABLE
 INSTANTIATE_LAUNCH_QUANTIZATION(__nv_bfloat16, 23, 8);

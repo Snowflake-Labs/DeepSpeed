@@ -15,6 +15,8 @@
                                                        (uint8_t*)out.data_ptr(),         \
                                                        num_groups,                       \
                                                        group_size,                       \
+                                                       group_wise_scaling,               \
+                                                       val_max,                          \
                                                        at::cuda::getCurrentCUDAStream(), \
                                                        q_range,                          \
                                                        q_bits,                           \
@@ -27,7 +29,9 @@ at::Tensor quantize(torch::Tensor& out,
                     int group_size,
                     int stochastic_rounding,
                     int q_bits,
-                    int q_mantisa_bits)
+                    int q_mantisa_bits,
+                    bool group_wise_scaling,
+                    float val_max)
 {
     int total_elems = at::numel(val);
     float q_range = q_bits == 8 ? (q_mantisa_bits == 3 ? 480.0 : 114688.0) :  // fp8 ranges
@@ -35,6 +39,7 @@ at::Tensor quantize(torch::Tensor& out,
                              (q_bits == 6 ? 28.0 :                            // fp6 range
                                   6.0));  // fp4 range (using power 2); TODO (Reza): add the power-4
                                           // in case accuracy is not matching!
+    if (group_wise_scaling) group_size = 256;
     int num_groups = total_elems / group_size;
 
     DISPATCH_QUANTIZE(kHalf, __half, 23, 8);

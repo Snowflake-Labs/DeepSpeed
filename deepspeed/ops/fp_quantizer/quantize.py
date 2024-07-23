@@ -72,16 +72,28 @@ class FP_Quantize(Quantizer):
         else:
             assert (0), \
                 f"Missing {q_bits}-quantization, please add the template arguments for the kernel to support this precision!"
-        self.num_groups = input.numel() // self.group_size
-        self.input_q = torch.ones(self.num_groups,
-                                  int(self.group_size * q_bits) // 8 + 4,
-                                  dtype=torch.uint8,
-                                  device=input.device)
-        out = fp_quant_module.quantize(self.input_q, input, self.group_size, stochastic_mode, q_bits, q_mantisa_bits)
+        self.val_max = input.abs().max()
+        if self.group_size == -1:
+            self.num_groups = 1
+            self.input_q = torch.empty(input.shape, dtype=torch.uint8, device=input.device)
+        else:
+            self.num_groups = input.numel() // self.group_size
+            self.input_q = torch.ones(self.num_groups,
+                                      int(self.group_size * q_bits) // 8 + 4,
+                                      dtype=torch.uint8,
+                                      device=input.device)
+        out = fp_quant_module.quantize(self.input_q, input, self.group_size, stochastic_mode, q_bits, q_mantisa_bits,
+                                       self.group_size == -1, self.val_max)
         if return_meta_tensor:
-            data, self.scale = out.split(self.group_size, dim=-1)
-            data = data.contiguous().reshape(input.shape)
-            self.scale = self.scale.contiguous()
+            if self.group_size == -1:
+                data = out
+                q_range = (480.0 if q_mantisa_bits == 3 else
+                           114688.0) if q_bits == 8 else 510.0 if q_bits == 12 else 28.0 if q_bits == 6 else 6.0
+                self.scale = self.val_max / q_range
+            else:
+                data, self.scale = out.split(self.group_size, dim=-1)
+                data = data.contiguous().reshape(input.shape)
+                self.scale = self.scale.contiguous()
             del self.input_q
             del out
             gc.collect()
@@ -91,7 +103,7 @@ class FP_Quantize(Quantizer):
         return out
 
     def get_scales(self):
-        return fp_quant_module.get_scales(self.scale, self.num_groups)
+        return fp_quant_module.get_scales(self.scale, self.num_groups) if self.group_size != -1 else self.scale
 
     def dequantize(self, input_q, fp_out=None, q_bits=8, q_mantisa_bits=3, scale=None) -> torch.Tensor:
         assert (self.orig_dtype is not None), \
