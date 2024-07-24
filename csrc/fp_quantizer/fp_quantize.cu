@@ -65,6 +65,7 @@ template <typename T,
           int stochastic_rounding = 0>
 __global__ void apply_quantization(T* val,
                                    uint8_t* q_val,
+                                   int num_groups,
                                    int group_size,
                                    std::pair<uint64_t, uint64_t> seed,
                                    float q_range,
@@ -91,7 +92,7 @@ __global__ void apply_quantization(T* val,
     const uint32_t store_thread_offset = lane * (total_q_bits * vector_size / 8);
     const uint32_t base_load_offset = gid * group_size + thread_offset;
     const uint32_t base_store_offset =
-        gid * ((group_size * total_q_bits / 8) + 4) +
+        gid * ((group_size * total_q_bits / 8) + (group_wise_scaling ? 4 : 0)) +
         store_thread_offset;  // 4-byte for saving the scale per group
     const T* load_base_ptr = val + base_load_offset;
     T tmp_buf[unroll * vector_size];
@@ -112,7 +113,7 @@ __global__ void apply_quantization(T* val,
                     cur_max =
                         reduce::element<ROp::Max>(cur_max, __habs(tmp_buf[i * vector_size + j]));
             else
-                cur_max = val_max
+                cur_max = val_max;
         }
     }
     if (group_wise_scaling) reduce::_block<T, 1, ROp::Max>(tb, warp, &cur_max);
@@ -206,7 +207,7 @@ __global__ void apply_quantization(T* val,
             }
         }
     }
-    if (group_wise_scaling && lane == 0) {
+    if (lane == 0 && group_wise_scaling) {
         float q_scale = conversion::to<float>(cur_max) / (float)q_range;
         uint8_t* scale_as_int8 = reinterpret_cast<uint8_t*>(&q_scale);
         uint32_t scale_offset =
@@ -332,7 +333,7 @@ __global__ void apply_dequantization(uint8_t* val, T* q_val, int group_size, int
                            CONST_Q_BITS,                                           \
                            CONST_Q_MANTISA_BITS,                                   \
                            CONST_STOCHASTIC_ROUNDING><<<grid, block, 0, stream>>>( \
-            val, q_val, group_size, seed, q_range, group_wise_scaling, val_max);   \
+            val, q_val, num_groups, group_size, seed, q_range, group_wise_scaling, val_max);   \
         break;
 
 template <typename T, int mantisa, int exponent>
