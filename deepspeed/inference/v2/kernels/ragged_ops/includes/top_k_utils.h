@@ -11,8 +11,14 @@
         } else if (2 == N_TOP_K) {         \
             constexpr int CONST_TOP_K = 2; \
             __VA_ARGS__();                 \
+        } else if (3 == N_TOP_K) {         \
+            constexpr int CONST_TOP_K = 3; \
+            __VA_ARGS__();                 \
         } else if (4 == N_TOP_K) {         \
             constexpr int CONST_TOP_K = 4; \
+            __VA_ARGS__();                 \
+        } else if (6 == N_TOP_K) {         \
+            constexpr int CONST_TOP_K = 6; \
             __VA_ARGS__();                 \
         } else if (8 == N_TOP_K) {         \
             constexpr int CONST_TOP_K = 8; \

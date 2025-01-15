@@ -53,41 +53,41 @@ void mixed_gemm(at::Tensor& output,
 
     TORCH_CHECK(weight.size(0) == k, "Weight dimension mismatch");
 
-    ACT_DTYPE_SWITCH(hidden_states.dtype() == torch::kFloat16, [&] {
-        WEIGHT_VARIANT_SWITCH(num_bits == 8, [&] {
-            fastertransformer::CutlassFpAIntBGemmRunner<ActivationDtype, WVariant> runner =
-                *MixedGemmContext<ActivationDtype, WVariant>::Instance().GeMM_Runner();
+    // ACT_DTYPE_SWITCH(hidden_states.dtype() == torch::kFloat16, [&] {
+    //     WEIGHT_VARIANT_SWITCH(num_bits == 8, [&] {
+    //         fastertransformer::CutlassFpAIntBGemmRunner<ActivationDtype, WVariant> runner =
+    //             *MixedGemmContext<ActivationDtype, WVariant>::Instance().GeMM_Runner();
 
-            ActivationType activation_type = (ActivationType)activation_raw;
-            if (!bias.has_value() && activation_type == ActivationType::IDENTITY) {
-                runner.gemm((ActivationDtype*)hidden_states.data_ptr(),
-                            (const char*)weight.data_ptr(),
-                            (ActivationDtype*)scales.data_ptr(),
-                            (ActivationDtype*)output.data_ptr(),
-                            m,
-                            n,
-                            k,
-                            nullptr,
-                            0,
-                            at::cuda::getCurrentCUDAStream());
-                return;
-            } else {
-                ActivationDtype* bias_ptr = nullptr;
-                if (bias.has_value()) { bias_ptr = (ActivationDtype*)bias.value().data_ptr(); }
-                runner.gemm_bias_act((ActivationDtype*)hidden_states.data_ptr(),
-                                     (char*)weight.data_ptr(),
-                                     (ActivationDtype*)scales.data_ptr(),
-                                     bias_ptr,
-                                     (ActivationDtype*)output.data_ptr(),
-                                     m,
-                                     n,
-                                     k,
-                                     activation_type,
-                                     nullptr,
-                                     0,
-                                     at::cuda::getCurrentCUDAStream());
-                return;
-            }
-        });
-    });
+    //         ActivationType activation_type = (ActivationType)activation_raw;
+    //         if (!bias.has_value() && activation_type == ActivationType::IDENTITY) {
+    //             runner.gemm((ActivationDtype*)hidden_states.data_ptr(),
+    //                         (const char*)weight.data_ptr(),
+    //                         (ActivationDtype*)scales.data_ptr(),
+    //                         (ActivationDtype*)output.data_ptr(),
+    //                         m,
+    //                         n,
+    //                         k,
+    //                         nullptr,
+    //                         0,
+    //                         at::cuda::getCurrentCUDAStream());
+    //             return;
+    //         } else {
+    //             ActivationDtype* bias_ptr = nullptr;
+    //             if (bias.has_value()) { bias_ptr = (ActivationDtype*)bias.value().data_ptr(); }
+    //             runner.gemm_bias_act((ActivationDtype*)hidden_states.data_ptr(),
+    //                                  (char*)weight.data_ptr(),
+    //                                  (ActivationDtype*)scales.data_ptr(),
+    //                                  bias_ptr,
+    //                                  (ActivationDtype*)output.data_ptr(),
+    //                                  m,
+    //                                  n,
+    //                                  k,
+    //                                  activation_type,
+    //                                  nullptr,
+    //                                  0,
+    //                                  at::cuda::getCurrentCUDAStream());
+    //             return;
+    //         }
+    //     });
+    // });
 }

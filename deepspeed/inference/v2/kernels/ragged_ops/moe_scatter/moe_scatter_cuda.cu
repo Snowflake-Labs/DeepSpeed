@@ -125,6 +125,7 @@ __global__ void moe_scatter_kernel(T* moe_input,
         const int32_t cur_expert_offset =
             (assigned_experts[i] > 0) ? expert_offsets[assigned_experts[i] - 1] : 0;
         store_rows[i] = cur_expert_offset + offsets[token_idx * N_TOP_K + i];
+        // if (store_rows[i] >= 3072) printf("******** ep (%d) : %d  %d ***********\n", assigned_experts[i], cur_expert_offset, store_rows[i]);
         const int32_t base_store_offset = store_rows[i] * n_channels + thread_offset;
         store_base_ptrs[i] = moe_input + base_store_offset;
     }

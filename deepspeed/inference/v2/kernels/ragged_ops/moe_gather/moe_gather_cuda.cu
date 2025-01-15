@@ -18,6 +18,98 @@ constexpr int threads = 256;
 }  // namespace gather
 
 template <typename T, int copyUnroll, int N_TOP_K>
+__global__ void moe_gather_kernel_with_padding(T* layer_output,
+                                  const T* moe_output,
+                                  const float* scores,
+                                  const int32_t* mapped_slots,
+                                  int32_t* expert_counts,
+                                  const int32_t n_channels,
+                                  const int32_t n_experts,
+                                  const bool normalize_scales,
+                                  const int32_t padded_token_count)
+{
+    constexpr int32_t vector_size = gather::access_granularity / sizeof(T);
+    constexpr int32_t stride = vector_size * gather::threads;
+
+    const int32_t token_idx = blockIdx.x;
+    int32_t token_mapped_slots[N_TOP_K];
+
+    bool all_slots_invalid = true;
+    for (int i = 0; i < N_TOP_K; i++) {
+        token_mapped_slots[i] = mapped_slots[token_idx * N_TOP_K + i];
+        all_slots_invalid &= (token_mapped_slots[i] == gating::unassigned);
+    }
+
+    if (token_idx == 0) {
+        // Reset expert counts for its next use.
+        if (threadIdx.x < n_experts) { expert_counts[threadIdx.x] = 0; }
+    }
+
+    if (all_slots_invalid) {
+        // This token was not assigned to anything.
+        // TODO(cmikeh2): It's possible we want different behavior here moving forward.
+        return;
+    }
+
+    float token_scores[N_TOP_K];
+    for (int i = 0; i < N_TOP_K; i++) { token_scores[i] = scores[token_idx * N_TOP_K + i]; }
+
+    if (normalize_scales) {
+        // Normalize the scores so that they sum to 1.
+        float sum = 0.0f;
+        for (int i = 0; i < N_TOP_K; i++) { sum += token_scores[i]; }
+
+        if (sum > 0.0f) {
+            for (int i = 0; i < N_TOP_K; i++) { token_scores[i] /= sum; }
+        }
+    }
+
+    const int32_t channel_offset = threadIdx.x * vector_size;
+
+    const T* moe_output_bases[N_TOP_K];
+#pragma unroll
+    for (int i = 0; i < N_TOP_K; i++) {
+        moe_output_bases[i] = moe_output + 
+                              ((token_mapped_slots[i] / padded_token_count) * padded_token_count + 
+                               (token_mapped_slots[i] % padded_token_count)) * n_channels + channel_offset;
+    }
+
+    T* layer_output_base = layer_output + token_idx * n_channels + channel_offset;
+
+#pragma unroll
+    for (int i = 0; i < copyUnroll; i++) {
+        if (i * stride + channel_offset < n_channels) {
+            float accum_buffer[vector_size];
+            for (int j = 0; j < vector_size; j++) {
+                accum_buffer[j] = reduce::init<reduce::ROpType::Add>();
+            }
+
+#pragma unroll
+            for (int j = 0; j < N_TOP_K; j++) {
+                T reg_buffer[vector_size];
+                mem_access::load_global<gather::access_granularity>(
+                    reg_buffer, moe_output_bases[j] + i * stride);
+
+#pragma unroll
+                for (int k = 0; k < vector_size; k++) {
+                    float up_cast = conversion::to<float>(reg_buffer[k]);
+                    accum_buffer[k] += up_cast * token_scores[j];
+                }
+            }
+
+            T store_buffer[vector_size];
+#pragma unroll
+            for (int j = 0; j < vector_size; j++) {
+                store_buffer[j] = conversion::to<T>(accum_buffer[j]);
+            }
+
+            mem_access::store_global<gather::access_granularity>(layer_output_base + i * stride,
+                                                                 store_buffer);
+        }
+    }
+}
+
+template <typename T, int copyUnroll, int N_TOP_K>
 __global__ void moe_gather_kernel(T* layer_output,
                                   const T* moe_output,
                                   const float* scores,

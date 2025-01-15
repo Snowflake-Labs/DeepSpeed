@@ -20,7 +20,7 @@ class MoEGEMM(DSKernelBase):
     supported_dtypes = [DtypeEnum.fp16, DtypeEnum.bf16]
     supported_act_fns = [ActivationType.GELU, ActivationType.SILU, ActivationType.RELU, ActivationType.IDENTITY]
 
-    def __init__(self, fp_dtype: DtypeEnum, act_fn: ActivationType) -> None:
+    def __init__(self, fp_dtype: DtypeEnum, act_fn: ActivationType=ActivationType.IDENTITY  ) -> None:
 
         if not isinstance(fp_dtype, DtypeEnum):
             fp_dtype = DtypeEnum(fp_dtype)

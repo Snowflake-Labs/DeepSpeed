@@ -19,3 +19,12 @@ void top_k_gating(torch::Tensor& expert_counts,
                   torch::Tensor& offsets,
                   torch::Tensor& logits,
                   torch::Tensor& batch_metadata);
+
+void grouped_top_k_gating(torch::Tensor& expert_counts,
+                  torch::Tensor& scores,
+                  torch::Tensor& assignments,
+                  torch::Tensor& offsets,
+                  torch::Tensor& logits,
+                  torch::Tensor& expert_mapping,
+                  int n_top_k_group,
+                  int n_groups);

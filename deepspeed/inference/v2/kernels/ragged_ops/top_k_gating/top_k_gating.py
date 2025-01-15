@@ -21,7 +21,7 @@ class RaggedTopKGating(DSKernelBase):
 
     supported_logit_dtypes = [DtypeEnum.fp16, DtypeEnum.bf16, DtypeEnum.fp32]
 
-    def __init__(self, logit_dtype: DtypeEnum) -> None:
+    def __init__(self, logit_dtype: DtypeEnum, topk: int = 1) -> None:
 
         if not isinstance(logit_dtype, DtypeEnum):
             logit_dtype = DtypeEnum(logit_dtype)
@@ -30,11 +30,16 @@ class RaggedTopKGating(DSKernelBase):
             raise RuntimeError(f"Unsupported logit dtype {logit_dtype}")
 
         inf_module = RaggedOpsBuilder().load()
-        self.kernel = inf_module.top_k_gating
+        self.topk = topk
+        if topk == 6:
+            self.kernel = inf_module.grouped_top_k_gating
+        else:
+            self.kernel = inf_module.top_k_gating
 
     def __call__(self, expert_counts: torch.Tensor, scores: torch.Tensor, assignments: torch.Tensor,
                  offsets: torch.Tensor, logits: torch.Tensor,
-                 batch: RaggedBatchWrapper) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+                 batch: RaggedBatchWrapper=None, 
+                 n_top_k_group=1, n_groups=1, expert_mapping=None,) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         """
         Perform the ragged top_k_gating.
 
@@ -55,5 +60,13 @@ class RaggedTopKGating(DSKernelBase):
         Returns:
             tuple of (expert_counts, scores, expert_assignment, expert_offset)
         """
-        self.kernel(expert_counts, scores, assignments, offsets, logits, batch.batch_metadata_buffer())
+        if self.topk == 6:
+            # print(logits, torch.isinf(logits).sum(), n_top_k_group, n_groups)
+            self.kernel(expert_counts, scores, assignments, offsets, logits, expert_mapping, n_top_k_group, n_groups)
+            # print(logits, torch.isinf(logits).sum())
+            # print("------------------------------------")
+            # if torch.isinf(logits).sum().item() > 0:
+            #     exit()
+        else:
+            self.kernel(expert_counts, scores, assignments, offsets, logits, batch.batch_metadata_buffer())
         return expert_counts, scores, assignments, offsets

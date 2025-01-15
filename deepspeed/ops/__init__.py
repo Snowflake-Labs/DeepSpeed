@@ -13,3 +13,4 @@ from . import fp_quantizer
 from .transformer import DeepSpeedTransformerLayer, DeepSpeedTransformerConfig
 
 from ..git_version_info import compatible_ops as __compatible_ops__
+from .custom_comm import *

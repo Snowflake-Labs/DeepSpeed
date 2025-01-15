@@ -45,4 +45,5 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m)
 
     // top_k_gating.h
     m.def("top_k_gating", &top_k_gating, "Top-1 gating for MoE with ragged batch awareness.");
+    m.def("grouped_top_k_gating", &grouped_top_k_gating, "Top-1 gating for MoE with ragged batch awareness.");
 }
